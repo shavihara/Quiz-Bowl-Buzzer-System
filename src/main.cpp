@@ -1,24 +1,31 @@
 #include <Arduino.h>
 
-// Pin definitions
-const int SWITCH_1_PIN = 18;
-const int SWITCH_2_PIN = 19;
-const int LED_1_PIN = 32;
-const int LED_2_PIN = 33;
-const int BUZZER_PIN = 23;
+// Pin definitions for 10 participants - CORRECTED according to your pinout plan
+const int switchPins[10] = {34, 35, 36, 39, 32, 33, 25, 26, 27, 14}; // GPIO numbers
+const int ledPins[10] = {12, 13, 15, 2, 4, 16, 17, 5, 18, 19};      // GPIO numbers
+const int buzzerPin = 23; // GPIO 23
+
+// Participant labels for serial output
+const char* participantNames[10] = {
+  "Participant 1", "Participant 2", "Participant 3", "Participant 4", "Participant 5",
+  "Participant 6", "Participant 7", "Participant 8", "Participant 9", "Participant 10"
+};
 
 // PWM properties
 const int PWM_FREQ = 5000;
 const int PWM_CHANNEL = 0;
 const int PWM_RESOLUTION = 8;
 
-// State variables
-volatile bool switch1Pressed = false;
-volatile bool switch2Pressed = false;
+// State variables for 10 participants
+volatile bool switchPressed[10] = {false, false, false, false, false, false, false, false, false, false};
 volatile bool firstPressDetected = false;
 volatile bool ignoreInputs = false;
 volatile unsigned long buzzerStartTime = 0;
-volatile int firstPress = 0;
+volatile int firstPress = -1; // -1 means no press yet
+
+// Debouncing variables for all 10 switches
+volatile unsigned long lastInterruptTime[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+const unsigned long DEBOUNCE_DELAY = 50;
 
 // Pattern variables
 bool ledBlinkState = false;
@@ -30,72 +37,93 @@ int buzzerPatternStep = 0;
 unsigned long lastBuzzerStepTime = 0;
 const unsigned long BUZZER_STEP_INTERVAL = 150; // Faster pattern steps
 
-// Debouncing variables
-volatile unsigned long lastInterruptTime1 = 0;
-volatile unsigned long lastInterruptTime2 = 0;
-const unsigned long DEBOUNCE_DELAY = 50;
-
-void IRAM_ATTR handleSwitch1()
+// Generic interrupt handler for any switch
+void IRAM_ATTR handleSwitchInterrupt(int switchIndex)
 {
   unsigned long interruptTime = millis();
-  if (interruptTime - lastInterruptTime1 > DEBOUNCE_DELAY)
+  if (interruptTime - lastInterruptTime[switchIndex] > DEBOUNCE_DELAY)
   {
-    if (!ignoreInputs && !firstPressDetected && digitalRead(SWITCH_1_PIN) == LOW)
+    if (!ignoreInputs && !firstPressDetected && digitalRead(switchPins[switchIndex]) == LOW)
     {
-      switch1Pressed = true;
+      switchPressed[switchIndex] = true;
     }
-    lastInterruptTime1 = interruptTime;
+    lastInterruptTime[switchIndex] = interruptTime;
   }
 }
 
-void IRAM_ATTR handleSwitch2()
-{
-  unsigned long interruptTime = millis();
-  if (interruptTime - lastInterruptTime2 > DEBOUNCE_DELAY)
-  {
-    if (!ignoreInputs && !firstPressDetected && digitalRead(SWITCH_2_PIN) == LOW)
-    {
-      switch2Pressed = true;
-    }
-    lastInterruptTime2 = interruptTime;
-  }
-}
+// Interrupt handler functions for all 10 switches
+void IRAM_ATTR handleSwitch0() { handleSwitchInterrupt(0); }
+void IRAM_ATTR handleSwitch1() { handleSwitchInterrupt(1); }
+void IRAM_ATTR handleSwitch2() { handleSwitchInterrupt(2); }
+void IRAM_ATTR handleSwitch3() { handleSwitchInterrupt(3); }
+void IRAM_ATTR handleSwitch4() { handleSwitchInterrupt(4); }
+void IRAM_ATTR handleSwitch5() { handleSwitchInterrupt(5); }
+void IRAM_ATTR handleSwitch6() { handleSwitchInterrupt(6); }
+void IRAM_ATTR handleSwitch7() { handleSwitchInterrupt(7); }
+void IRAM_ATTR handleSwitch8() { handleSwitchInterrupt(8); }
+void IRAM_ATTR handleSwitch9() { handleSwitchInterrupt(9); }
 
 void setup()
 {
+  // === BOOT PROTECTION - CRITICAL FOR ESP32 ===
+  // Minimal protection to avoid upload interference
+  // Only protect GPIO0 which is critical for boot mode
+  pinMode(0, INPUT_PULLUP);    // GPIO0 - prevent download mode (MOST IMPORTANT)
+  
+  // Very short delay for boot stabilization
+  delay(10);
+  // === END BOOT PROTECTION ===
+
   Serial.begin(115200);
-  Serial.println("Starting Quiz Competition System...");
+  delay(100);  // Allow Serial to stabilize
+  Serial.println("Starting Quiz Competition System with 10 Participants...");
 
-  // Initialize pins to known state
-  digitalWrite(LED_1_PIN, LOW);
-  digitalWrite(LED_2_PIN, LOW);
-  digitalWrite(BUZZER_PIN, LOW);
+  // Initialize all LED pins to OUTPUT and set LOW
+  for (int i = 0; i < 10; i++) {
+    pinMode(ledPins[i], OUTPUT);
+    digitalWrite(ledPins[i], LOW);
+  }
 
-  // Set pin modes
-  pinMode(SWITCH_1_PIN, INPUT_PULLUP);
-  pinMode(SWITCH_2_PIN, INPUT_PULLUP);
-  pinMode(LED_1_PIN, OUTPUT);
-  pinMode(LED_2_PIN, OUTPUT);
-  pinMode(BUZZER_PIN, OUTPUT);
+  // Initialize all switch pins with correct pull-up configuration
+  // Note: GPIO 34, 35, 36, 39 don't have internal pull-ups, need external 10KΩ resistors
+  for (int i = 0; i < 10; i++) {
+    if (i < 4) { // GPIO 34, 35, 36, 39 - external pull-up required
+      pinMode(switchPins[i], INPUT);
+    } else { // GPIO 32, 33, 25, 26, 27, 14 - internal pull-up available
+      pinMode(switchPins[i], INPUT_PULLUP);
+    }
+  }
 
-  // Double-check outputs are OFF
-  digitalWrite(LED_1_PIN, LOW);
-  digitalWrite(LED_2_PIN, LOW);
-  digitalWrite(BUZZER_PIN, LOW);
+  // Initialize buzzer pin
+  pinMode(buzzerPin, OUTPUT);
+  digitalWrite(buzzerPin, LOW);
 
   // Configure PWM for buzzer - FULL VOLUME
   ledcSetup(PWM_CHANNEL, 5000, 8); // 5kHz frequency
-  ledcAttachPin(BUZZER_PIN, PWM_CHANNEL);
+  ledcAttachPin(buzzerPin, PWM_CHANNEL);
   ledcWrite(PWM_CHANNEL, 0); // Start silent
 
   delay(100);
 
-  // Attach interrupts
-  attachInterrupt(digitalPinToInterrupt(SWITCH_1_PIN), handleSwitch1, FALLING);
-  attachInterrupt(digitalPinToInterrupt(SWITCH_2_PIN), handleSwitch2, FALLING);
+  // Attach interrupts for all 10 switches
+  attachInterrupt(digitalPinToInterrupt(switchPins[0]), handleSwitch0, FALLING);
+  attachInterrupt(digitalPinToInterrupt(switchPins[1]), handleSwitch1, FALLING);
+  attachInterrupt(digitalPinToInterrupt(switchPins[2]), handleSwitch2, FALLING);
+  attachInterrupt(digitalPinToInterrupt(switchPins[3]), handleSwitch3, FALLING);
+  attachInterrupt(digitalPinToInterrupt(switchPins[4]), handleSwitch4, FALLING);
+  attachInterrupt(digitalPinToInterrupt(switchPins[5]), handleSwitch5, FALLING);
+  attachInterrupt(digitalPinToInterrupt(switchPins[6]), handleSwitch6, FALLING);
+  attachInterrupt(digitalPinToInterrupt(switchPins[7]), handleSwitch7, FALLING);
+  attachInterrupt(digitalPinToInterrupt(switchPins[8]), handleSwitch8, FALLING);
+  attachInterrupt(digitalPinToInterrupt(switchPins[9]), handleSwitch9, FALLING);
 
-  Serial.println("🎯 Quiz Competition System READY!");
-  Serial.println("Press any switch to start...");
+  Serial.println("🎯 10-Participant Quiz Competition System READY!");
+  Serial.println("Press any buzzer to start...");
+  Serial.println("Pin Mapping:");
+  for (int i = 0; i < 10; i++) {
+    Serial.printf("Participant %d: Switch=GPIO%d, LED=GPIO%d\n", 
+                 i+1, switchPins[i], ledPins[i]);
+  }
 }
 
 void playThrillingBuzzer()
@@ -205,77 +233,59 @@ void updateExcitingLEDs()
       ledBlinkState = (breath * breath) < 62500; // Quadratic breathing
     }
 
-    // Apply to correct LED
-    if (firstPress == 1)
-    {
-      digitalWrite(LED_1_PIN, ledBlinkState ? HIGH : LOW);
-      digitalWrite(LED_2_PIN, LOW);
+    // Turn off all LEDs first
+    for (int i = 0; i < 10; i++) {
+      digitalWrite(ledPins[i], LOW);
     }
-    else if (firstPress == 2)
-    {
-      digitalWrite(LED_2_PIN, ledBlinkState ? HIGH : LOW);
-      digitalWrite(LED_1_PIN, LOW);
+
+    // Apply blinking effect to the winner's LED only
+    if (firstPress >= 0 && firstPress < 10) {
+      digitalWrite(ledPins[firstPress], ledBlinkState ? HIGH : LOW);
     }
   }
 }
 
 void loop()
 {
-  // Check for first switch press
-  if (!firstPressDetected && (switch1Pressed || switch2Pressed))
-  {
-    bool s1 = (digitalRead(SWITCH_1_PIN) == LOW);
-    bool s2 = (digitalRead(SWITCH_2_PIN) == LOW);
+  // Check for first switch press among all 10 participants
+  if (!firstPressDetected) {
+    for (int i = 0; i < 10; i++) {
+      if (switchPressed[i]) {
+        // Verify the switch is actually pressed (debounce verification)
+        bool isActuallyPressed = (digitalRead(switchPins[i]) == LOW);
+        
+        if (isActuallyPressed) {
+          firstPressDetected = true;
+          ignoreInputs = true;
+          firstPress = i;
+          
+          // Announce the winner
+          Serial.printf("🎉 %s WINS! First to press! 🎉\n", participantNames[i]);
+          Serial.println("🔊 Playing exciting victory sequence!");
 
-    if ((switch1Pressed && s1) || (switch2Pressed && s2))
-    {
-      firstPressDetected = true;
-      ignoreInputs = true;
+          // Initialize patterns
+          buzzerStartTime = millis();
+          buzzerPatternStep = 0;
+          lastBuzzerStepTime = buzzerStartTime;
+          lastLedBlinkTime = buzzerStartTime;
+          ledBlinkState = true;
 
-      // Determine winner
-      if (switch1Pressed && s1 && !(switch2Pressed && s2))
-      {
-        firstPress = 1;
-        Serial.println("🎉 TEAM 1 WINS! First to press! 🎉");
+          // Turn off all LEDs first, then turn on winner's LED
+          for (int j = 0; j < 10; j++) {
+            digitalWrite(ledPins[j], LOW);
+          }
+          digitalWrite(ledPins[i], HIGH);
+
+          // Reset all switch pressed flags
+          for (int j = 0; j < 10; j++) {
+            switchPressed[j] = false;
+          }
+          break; // Exit the loop once we found the first press
+        } else {
+          // False trigger - reset this switch
+          switchPressed[i] = false;
+        }
       }
-      else if (switch2Pressed && s2 && !(switch1Pressed && s1))
-      {
-        firstPress = 2;
-        Serial.println("🎉 TEAM 2 WINS! First to press! 🎉");
-      }
-      else
-      {
-        firstPress = 1;
-        Serial.println("⚡ Both pressed! TEAM 1 awarded! ⚡");
-      }
-
-      // Initialize patterns
-      buzzerStartTime = millis();
-      buzzerPatternStep = 0;
-      lastBuzzerStepTime = buzzerStartTime;
-      lastLedBlinkTime = buzzerStartTime;
-      ledBlinkState = true;
-
-      // Initial LED state
-      if (firstPress == 1)
-      {
-        digitalWrite(LED_1_PIN, HIGH);
-      }
-      else
-      {
-        digitalWrite(LED_2_PIN, HIGH);
-      }
-
-      Serial.println("🔊 Playing exciting victory sequence!");
-
-      switch1Pressed = false;
-      switch2Pressed = false;
-    }
-    else
-    {
-      // False trigger
-      switch1Pressed = false;
-      switch2Pressed = false;
     }
   }
 
@@ -293,10 +303,11 @@ void loop()
       ledcWrite(PWM_CHANNEL, 255);
       delay(200);
 
-      // Turn off everything
+      // Turn off everything - all 10 LEDs and buzzer
       ledcWrite(PWM_CHANNEL, 0);
-      digitalWrite(LED_1_PIN, LOW);
-      digitalWrite(LED_2_PIN, LOW);
+      for (int i = 0; i < 10; i++) {
+        digitalWrite(ledPins[i], LOW);
+      }
 
       // Reset state
       firstPressDetected = false;
