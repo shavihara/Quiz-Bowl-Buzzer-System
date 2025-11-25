@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>STAT BEE 2.0 - Buzzer Round Scoreboard</title>
+<style>
+body {
+    font-family: Arial, sans-serif;
+    background: #000;
+    color: #ffd700;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+    min-height: 100vh;
+}
+
+/* Title row: left logo, centered title, right logo */
+.title-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    margin-bottom: 20px;
+}
+
+/* STAT BEE logo left */
+.left-logo img {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    object-fit: cover;
+    margin-right: 20px;
+}
+
+/* Center: title and slogan */
+.competition-title {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+
+.competition-title h1 {
+    font-size: 36px;
+    margin: 0;
+    text-shadow: 1px 1px 5px #000;
+}
+
+.competition-title p {
+    font-size: 16px;
+    margin: 5px 0 0 0;
+    font-style: italic;
+}
+
+/* SCSSA logo right */
+.right-logo img {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    object-fit: cover;
+    margin-left: 20px;
+}
+
+/* Round name above scoreboard */
+.round-name {
+    font-size: 24px;
+    color: #ffd700;
+    margin-bottom: 10px;
+    font-weight: bold;
+}
+
+/* Scoreboard */
+.scoreboard {
+    width: 450px;
+    background-color: #111;
+    border-radius: 15px;
+    padding: 20px;
+    margin-bottom: 40px;
+}
+
+.position {
+    display: flex;
+    justify-content: space-between;
+    padding: 14px 20px;
+    margin: 8px 0;
+    border-radius: 10px;
+    font-weight: bold;
+    font-size: 20px;
+    min-height: 32px;
+}
+
+.first{background-color: #ffd700;color:#000;font-size:22px;}
+.second{background-color: #c0c0c0;color:#000;font-size:21px;}
+.third{background-color: #cd7f32;color:#fff;font-size:21px;}
+.other{background-color: #333;color:#ffd700;}
+
+/* Reset button */
+.reset-btn {
+    padding: 12px 25px;
+    border: none;
+    background: #ffd700;
+    border-radius: 10px;
+    font-weight: bold;
+    cursor: pointer;
+    color: #000;
+    font-size: 16px;
+    margin-top: 20px;
+    box-shadow: 2px 2px 10px #000;
+}
+
+.reset-btn:hover {
+    background: #e6c200;
+}
+</style>
+</head>
+<body>
+
+<!-- Title row with logos and centered title -->
+<div class="title-row">
+    <div class="left-logo">
+        <img src="stabee.jpg" alt="STAT BEE Logo">
+    </div>
+
+    <div class="competition-title">
+        <h1>STAT BEE 2.0</h1>
+        <p>Fostering the next generation of statisticians</p>
+    </div>
+
+    <div class="right-logo">
+        <img src="SCSSA.jpg" alt="SCSSA Logo">
+    </div>
+</div>
+
+<!-- Round name -->
+<div class="round-name">Buzzer Round</div>
+
+<!-- Scoreboard -->
+<div class="scoreboard">
+    <div class="position first"><span>1st</span><span class="team-name"></span></div>
+    <div class="position second"><span>2nd</span><span class="team-name"></span></div>
+    <div class="position third"><span>3rd</span><span class="team-name"></span></div>
+    <div class="position other"><span>4th</span><span class="team-name"></span></div>
+    <div class="position other"><span>5th</span><span class="team-name"></span></div>
+    <div class="position other"><span>6th</span><span class="team-name"></span></div>
+    <div class="position other"><span>7th</span><span class="team-name"></span></div>
+    <div class="position other"><span>8th</span><span class="team-name"></span></div>
+</div>
+
+<!-- Reset button -->
+<button class="reset-btn">Reset Round</button>
+
+<script>
+let buzzerOrder = [];
+const teamNames = document.querySelectorAll('.team-name');
+
+function buzzerHit(team) {
+    if (buzzerOrder.length < 8 && !buzzerOrder.includes(team)) {
+        buzzerOrder.push(team);
+        teamNames[buzzerOrder.length-1].textContent = team;
+    }
+}
+
+document.querySelector('.reset-btn').addEventListener('click', () => {
+    buzzerOrder = [];
+    teamNames.forEach(span => span.textContent = '');
+});
+</script>
+
+</body>
+</html>
