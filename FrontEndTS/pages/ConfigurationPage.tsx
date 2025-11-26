@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useConfig } from '../context/ConfigContext';
 import { fileToBase64, compressImage } from '../utils/imageUtils';
 import { NeonInput, NeonFileInput } from '../components/NeonInput';
@@ -18,6 +18,19 @@ export default function ConfigurationPage() {
   const [editingName, setEditingName] = useState<string>('');
   const [editingLogo, setEditingLogo] = useState<string | null>(null);
   const [importMsg, setImportMsg] = useState<string>('');
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  React.useEffect(() => {
+    return () => {
+      try {
+        if (previewAudioRef.current) {
+          previewAudioRef.current.pause();
+          previewAudioRef.current.currentTime = 0;
+          previewAudioRef.current = null;
+        }
+      } catch {}
+    };
+  }, []);
 
   const handleLogoUpload = async (key: 'leftLogo' | 'rightLogo' | 'mainAnimationGif', file: File) => {
     try {
@@ -121,6 +134,7 @@ export default function ConfigurationPage() {
         buzzerAudioData: assets.buzzerAudio?.data || null,
         teams: newTeams,
       });
+      try { if (previewAudioRef.current) { previewAudioRef.current.pause(); previewAudioRef.current.currentTime = 0; previewAudioRef.current = null; } } catch {}
       setImportMsg(`Imported: ${file.name}`);
     } catch (e) {
       alert('Failed to import configuration. Ensure you selected a valid config file.');
@@ -457,6 +471,7 @@ export default function ConfigurationPage() {
                       if (!/^audio\//.test(f.type)) { alert('Please select an audio file'); return; }
                       if (f.size > 250000) { alert('Audio too large. Please keep under 250KB'); return; }
                       try {
+                        try { if (previewAudioRef.current) { previewAudioRef.current.pause(); previewAudioRef.current.currentTime = 0; previewAudioRef.current = null; } } catch {}
                         const base64 = await fileToBase64(f);
                         updateConfig({ buzzerAudioData: base64 });
                       } catch { alert('Failed to load audio'); }
@@ -467,11 +482,24 @@ export default function ConfigurationPage() {
                   <div className="flex items-center gap-2 mt-3">
                     <button
                       disabled={!config.buzzerAudioData}
-                      onClick={() => { if (config.buzzerAudioData) { const a = new Audio(config.buzzerAudioData); a.play().catch(()=>{});} }}
+                      onClick={() => {
+                        if (!config.buzzerAudioData) return;
+                        try {
+                          if (previewAudioRef.current) {
+                            previewAudioRef.current.pause();
+                            previewAudioRef.current.currentTime = 0;
+                          }
+                          previewAudioRef.current = new Audio(config.buzzerAudioData);
+                          previewAudioRef.current.play().catch(()=>{});
+                        } catch {}
+                      }}
                       className="px-3 py-2 rounded bg-gray-700 hover:bg-gray-600 text-sm disabled:opacity-50"
                     ><Play size={16} className="inline mr-1"/> Preview</button>
                     <button
-                      onClick={() => updateConfig({ buzzerAudioData: null })}
+                      onClick={() => { 
+                        try { if (previewAudioRef.current) { previewAudioRef.current.pause(); previewAudioRef.current.currentTime = 0; previewAudioRef.current = null; } } catch {}
+                        updateConfig({ buzzerAudioData: null });
+                      }}
                       className="px-3 py-2 rounded bg-gray-700 hover:bg-gray-600 text-sm"
                     ><StopCircle size={16} className="inline mr-1"/> Clear</button>
                   </div>

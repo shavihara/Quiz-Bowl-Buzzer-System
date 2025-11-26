@@ -73,6 +73,18 @@ volatile unsigned long beepEndTime = 0;
 const unsigned long PRESS_LED_MS = 700;
 const unsigned long PRESS_BEEP_MS = 200;
 
+volatile int ledEffect[10] = {0,0,0,0,0,0,0,0,0,0};
+volatile bool ledCurrentState[10] = {false,false,false,false,false,false,false,false,false,false};
+volatile unsigned long patternUntil[10] = {0,0,0,0,0,0,0,0,0,0};
+volatile int patternIndex[10] = {0,0,0,0,0,0,0,0,0,0};
+const unsigned short E3_SEQ_MS[6] = {120,60,120,60,120,500};
+const unsigned short E2_SEQ_MS[4] = {120,80,120,600};
+const unsigned short E1_SEQ_MS[2] = {150,700};
+const int E3_LEN = 6;
+const int E2_LEN = 4;
+const int E1_LEN = 2;
+volatile unsigned long startBlinkEnd = 0;
+
 // Generic interrupt handler for any switch
 void IRAM_ATTR handleSwitchInterrupt(int switchIndex)
 {
@@ -182,6 +194,7 @@ void setup()
 
   server.on("/api/health", HTTP_GET, handleHealth);
   server.on("/api/status", HTTP_GET, handleStatus);
+  server.on("/api/game/config", HTTP_GET, handleGameConfig);
   server.on("/api/game/config", HTTP_POST, handleGameConfig);
   server.on("/api/game/start", HTTP_POST, handleGameStart);
   server.on("/api/game/reset", HTTP_POST, handleGameReset);
@@ -192,6 +205,15 @@ void setup()
   server.on("/api/game/config", HTTP_OPTIONS, handleOptions);
   server.on("/api/game/start", HTTP_OPTIONS, handleOptions);
   server.on("/api/game/reset", HTTP_OPTIONS, handleOptions);
+  server.onNotFound([](){
+    if (server.method() == HTTP_OPTIONS) {
+      sendCors();
+      server.send(204);
+      return;
+    }
+    sendCors();
+    server.send(404, "text/plain", "Not found");
+  });
   server.begin();
 }
 
@@ -230,7 +252,7 @@ void updateExcitingLEDs()
 void sendCors(){
   server.sendHeader("Access-Control-Allow-Origin","*");
   server.sendHeader("Access-Control-Allow-Methods","GET,POST,OPTIONS");
-  server.sendHeader("Access-Control-Allow-Headers","Content-Type");
+  server.sendHeader("Access-Control-Allow-Headers","Content-Type, Accept");
 }
 
 void handleOptions(){
@@ -259,8 +281,17 @@ void handleStatus(){
   sendCors(); server.send(200,"application/json",out);
 }
 
-// Store game duration without starting
+// Store game duration or return current config
 void handleGameConfig(){
+  if (server.method() == HTTP_GET) {
+    DynamicJsonDocument outDoc(128);
+    outDoc["durationMs"] = gameDuration;
+    String out;
+    serializeJson(outDoc, out);
+    sendCors();
+    server.send(200, "application/json", out);
+    return;
+  }
   String body = server.arg("plain");
   DynamicJsonDocument doc(256);
   deserializeJson(doc, body);
@@ -277,6 +308,10 @@ void handleGameStart(){
     pressTimestamps[i] = 0;
     pressOrderNo[i] = -1;
     ledOffAt[i] = 0;
+    ledEffect[i] = 0;
+    ledCurrentState[i] = false;
+    patternUntil[i] = 0;
+    patternIndex[i] = 0;
   }
   pressCount = 0;
   currentOrderNo = 0;
@@ -285,6 +320,7 @@ void handleGameStart(){
   gameActive = true;
   gameStartTime = millis();
   beepEndTime = 0;
+  startBlinkEnd = gameStartTime + 200;
   sendCors(); server.send(200,"application/json","{}");
 }
 
@@ -321,6 +357,32 @@ void loop()
           if (pressCount < 10) pressOrder[pressCount++] = i;
           ledOffAt[i] = now + PRESS_LED_MS;
           beepEndTime = now + PRESS_BEEP_MS;
+          int order = pressOrderNo[i];
+          if (order == 0) {
+            ledEffect[i] = 3;
+            patternIndex[i] = 0;
+            ledCurrentState[i] = true;
+            digitalWrite(ledPins[i], HIGH);
+            patternUntil[i] = now + E3_SEQ_MS[0];
+          } else if (order == 1) {
+            ledEffect[i] = 2;
+            patternIndex[i] = 0;
+            ledCurrentState[i] = true;
+            digitalWrite(ledPins[i], HIGH);
+            patternUntil[i] = now + E2_SEQ_MS[0];
+          } else if (order == 2) {
+            ledEffect[i] = 1;
+            patternIndex[i] = 0;
+            ledCurrentState[i] = true;
+            digitalWrite(ledPins[i], HIGH);
+            patternUntil[i] = now + E1_SEQ_MS[0];
+          } else {
+            ledEffect[i] = 4;
+            patternUntil[i] = 0;
+            patternIndex[i] = 0;
+            ledCurrentState[i] = true;
+            digitalWrite(ledPins[i], HIGH);
+          }
           
           // Send SSE event with timestamp and order number
           DynamicJsonDocument eventData(256);
@@ -336,11 +398,52 @@ void loop()
         }
       }
     }
-    for (int i = 0; i < 10; i++) {
-      if (ledOffAt[i] > now) {
-        digitalWrite(ledPins[i], HIGH);
-      } else {
-        digitalWrite(ledPins[i], LOW);
+    if (startBlinkEnd > now) {
+      for (int i=0;i<10;i++){ digitalWrite(ledPins[i], HIGH); }
+    } else {
+      for (int i = 0; i < 10; i++) {
+        int eff = ledEffect[i];
+        if (eff == 0) {
+          digitalWrite(ledPins[i], LOW);
+        } else if (eff == 4) {
+          digitalWrite(ledPins[i], HIGH);
+        } else if (eff == 3) {
+          if (patternUntil[i] == 0) {
+            patternIndex[i] = 0;
+            ledCurrentState[i] = true;
+            digitalWrite(ledPins[i], HIGH);
+            patternUntil[i] = now + E3_SEQ_MS[0];
+          } else if (now >= patternUntil[i]) {
+            patternIndex[i] = (patternIndex[i] + 1) % E3_LEN;
+            ledCurrentState[i] = (patternIndex[i] % 2 == 0);
+            digitalWrite(ledPins[i], ledCurrentState[i] ? HIGH : LOW);
+            patternUntil[i] = now + E3_SEQ_MS[patternIndex[i]];
+          }
+        } else if (eff == 2) {
+          if (patternUntil[i] == 0) {
+            patternIndex[i] = 0;
+            ledCurrentState[i] = true;
+            digitalWrite(ledPins[i], HIGH);
+            patternUntil[i] = now + E2_SEQ_MS[0];
+          } else if (now >= patternUntil[i]) {
+            patternIndex[i] = (patternIndex[i] + 1) % E2_LEN;
+            ledCurrentState[i] = (patternIndex[i] % 2 == 0);
+            digitalWrite(ledPins[i], ledCurrentState[i] ? HIGH : LOW);
+            patternUntil[i] = now + E2_SEQ_MS[patternIndex[i]];
+          }
+        } else if (eff == 1) {
+          if (patternUntil[i] == 0) {
+            patternIndex[i] = 0;
+            ledCurrentState[i] = true;
+            digitalWrite(ledPins[i], HIGH);
+            patternUntil[i] = now + E1_SEQ_MS[0];
+          } else if (now >= patternUntil[i]) {
+            patternIndex[i] = (patternIndex[i] + 1) % E1_LEN;
+            ledCurrentState[i] = (patternIndex[i] % 2 == 0);
+            digitalWrite(ledPins[i], ledCurrentState[i] ? HIGH : LOW);
+            patternUntil[i] = now + E1_SEQ_MS[patternIndex[i]];
+          }
+        }
       }
     }
     if (beepEndTime > now) {
@@ -357,6 +460,7 @@ void loop()
       String s; serializeJson(d,s);
       sendSSEEvent("result", s.c_str());
       gameActive = false;
+      for (int i=0;i<10;i++) { digitalWrite(ledPins[i], LOW); }
     }
   }
   delay(10);

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useConfig } from '../context/ConfigContext';
 import { useNavigate } from 'react-router-dom';
 import { Settings, Play, Pause, Square, SkipForward, RotateCcw } from 'lucide-react';
-import { startGame, resetGame, connectEvents } from '../utils/espApi';
+import { startGame, resetGame, connectEvents, postConfig } from '../utils/espApi';
 
 enum GameState {
   IDLE = 'IDLE',      // "Let's Start" Screen
@@ -22,6 +22,8 @@ export default function MainQuizPage() {
   const audioCtxRef = useRef<any>(null);
   const gainRef = useRef<any>(null);
   const bufferRef = useRef<AudioBuffer | null>(null);
+  const currentSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const esRef = useRef<EventSource | null>(null);
   const initAudio = async () => {
     if (!audioCtxRef.current) {
       const AC: any = (window as any).AudioContext || (window as any).webkitAudioContext;
@@ -55,9 +57,15 @@ export default function MainQuizPage() {
     const ctx = audioCtxRef.current;
     if (!ctx || !gainRef.current || !bufferRef.current) return;
     try { if (ctx.state === 'suspended') { ctx.resume(); } } catch {}
+    if (currentSourceRef.current) {
+      try { currentSourceRef.current.stop(); } catch {}
+      currentSourceRef.current = null;
+    }
     const src = ctx.createBufferSource();
     src.buffer = bufferRef.current;
     src.connect(gainRef.current);
+    src.onended = () => { currentSourceRef.current = null; };
+    currentSourceRef.current = src;
     src.start(ctx.currentTime);
   };
   
@@ -77,6 +85,7 @@ export default function MainQuizPage() {
   }, [gameState, timeLeft]);
 
   useEffect(() => {
+    try { if (esRef.current) { esRef.current.close(); esRef.current = null; } } catch {}
     const es = connectEvents(
       (data) => {
         const idx = Number(data.teamIndex);
@@ -94,11 +103,26 @@ export default function MainQuizPage() {
       },
       (res) => {
         setPressedOrder(res.top3 || []);
-        setGameState(GameState.FINISHED);
+        // Do not force finish here; let local timer or user action finish the round
       }
     );
-    return () => { try { es.close(); } catch {} };
+    esRef.current = es;
+    return () => { try { if (esRef.current) { esRef.current.close(); esRef.current = null; } } catch {} };
   }, [soundEnabled, config.buzzerAudioData, config.buzzerToneFreq, config.buzzerToneMs]);
+
+  useEffect(() => {
+    (async () => {
+      if (!config.buzzerAudioData) { bufferRef.current = null; return; }
+      await initAudio();
+      try {
+        const res = await fetch(config.buzzerAudioData);
+        const ab = await res.arrayBuffer();
+        const buf = await audioCtxRef.current.decodeAudioData(ab);
+        bufferRef.current = buf;
+        if (currentSourceRef.current) { try { currentSourceRef.current.stop(); } catch {} currentSourceRef.current = null; }
+      } catch {}
+    })();
+  }, [config.buzzerAudioData]);
 
   useEffect(() => {
     const handler = () => { if (soundEnabled) { initAudio().catch(()=>{}); } };
@@ -120,6 +144,8 @@ export default function MainQuizPage() {
   };
 
   const handleStart = () => {
+    const durationMs = Number(config.questionTimeoutSeconds) * 1000;
+    postConfig(durationMs).catch(() => {});
     startGame().catch(() => {});
     setGameState(GameState.RUNNING);
     setPressedOrder([]);
@@ -274,20 +300,20 @@ export default function MainQuizPage() {
            )}
 
            <div className="relative z-10 text-center w-full max-w-4xl px-12">
-             {gameState === GameState.RUNNING || gameState === GameState.FINISHED ? (
-               <div className="flex flex-col items-center w-full">
-                 <div className="text-[8rem] md:text-[10rem] font-display font-black leading-none text-white drop-shadow-[0_0_30px_#ff00ff]">
-                   {Math.floor(timeLeft / 60)}:{String(timeLeft % 60).padStart(2, '0')}
-                 </div>
-                 {/* Progress Bar */}
-                 <div className="w-full h-6 bg-gray-800 rounded-full mt-8 overflow-hidden border border-gray-700">
-                    <div 
-                      className={`h-full transition-all duration-1000 ease-linear ${timeLeft < 10 ? 'bg-red-500 shadow-[0_0_20px_red]' : 'bg-neon-blue shadow-[0_0_20px_#00f3ff]'}`}
-                      style={{ width: `${progressPercent}%` }}
-                    />
-                 </div>
-               </div>
-             ) : (
+            {gameState === GameState.RUNNING ? (
+              <div className="flex flex-col items-center w-full">
+                <div className="text-[8rem] md:text-[10rem] font-display font-black leading-none text-white drop-shadow-[0_0_30px_#ff00ff]">
+                  {Math.floor(timeLeft / 60)}:{String(timeLeft % 60).padStart(2, '0')}
+                </div>
+                {/* Progress Bar */}
+                <div className="w-full h-6 bg-gray-800 rounded-full mt-8 overflow-hidden border border-gray-700">
+                   <div 
+                     className={`h-full transition-all duration-1000 ease-linear ${timeLeft < 10 ? 'bg-red-500 shadow-[0_0_20px_red]' : 'bg-neon-blue shadow-[0_0_20px_#00f3ff]'}`}
+                     style={{ width: `${progressPercent}%` }}
+                   />
+                </div>
+              </div>
+            ) : (
                <div className="animate-glow">
                   <div className="text-5xl md:text-6xl font-display font-black text-white tracking-widest">
                     QUESTION {Number(config.currentQuestionNumber) || 1}
