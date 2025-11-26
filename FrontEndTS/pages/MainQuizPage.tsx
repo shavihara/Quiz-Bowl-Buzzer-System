@@ -349,47 +349,45 @@ export default function MainQuizPage() {
             </div>
           )}
 
-          <div className={`grid gap-4 w-full h-full p-4 overflow-y-auto grid-cols-1`}>
-              {displayTeams.map((team, index) => (
+          <div className={`grid gap-4 w-full h-full p-4 overflow-y-auto grid-cols-1 md:grid-cols-2 lg:grid-cols-3`}>
+             {displayTeams.map((team, index) => (
                 <div 
                  key={team.id} 
                 className={`
-                  relative bg-dark-card border rounded-xl overflow-hidden grid grid-cols-[auto_auto_1fr] items-center gap-4 p-4 transition-all duration-500
+                  relative bg-dark-card border rounded-xl overflow-hidden p-4 transition-all duration-500 flex flex-col items-center gap-3 text-center
                   ${gameState === GameState.FINISHED 
                     ? 'border-neon-yellow shadow-[0_0_30px_#ffe60033]' 
                     : 'border-gray-700 hover:border-neon-blue'
                   }
                 `}
                 >
-                  {gameState === GameState.FINISHED && pressedOrder.length > 0 ? (
-                    <div className={`text-neon-yellow font-display font-black text-sm md:text-base bg-black/40 px-2 py-1 rounded`}>#{index + 1}</div>
-                  ) : (
-                    (() => {
-                      const teamIndex = config.teams.findIndex(t => t.id === team.id);
-                      const place = positionsMap[String(teamIndex)];
-                      return place ? (
-                        <div className={`text-neon-blue font-display font-black text-sm md:text-base bg-black/40 px-2 py-1 rounded`}>#{place}</div>
-                      ) : (
-                        <div className="w-6" />
-                      );
-                    })()
-                  )}
-
-                  <div className="flex items-center gap-4 md:gap-6">
-                    <div className="rounded-full bg-black border-2 border-gray-600 overflow-hidden flex items-center justify-center shadow-lg w-14 h-14 md:w-16 md:h-16 lg:w-20 lg:h-20">
-                      {team.logo ? <img src={team.logo} className="w-full h-full object-cover" /> : <span className="text-white font-bold text-xl md:text-2xl">{team.name[0]}</span>}
-                    </div>
-                    <div className={`font-bold uppercase tracking-wider ${gameState === GameState.FINISHED ? 'text-2xl md:text-3xl text-neon-yellow' : 'text-base md:text-lg text-white'} truncate max-w-[50vw] md:max-w-[30vw]`}>
-                      {team.name}
-                    </div>
+                  <div className="absolute top-3 left-3">
+                    {gameState === GameState.FINISHED && pressedOrder.length > 0 ? (
+                      <div className={`text-neon-yellow font-display font-black text-xs bg-black/40 px-2 py-1 rounded`}>#{index + 1}</div>
+                    ) : (
+                      (() => {
+                        const teamIndex = config.teams.findIndex(t => t.id === team.id);
+                        const place = positionsMap[String(teamIndex)];
+                        return place ? (
+                          <div className={`text-neon-blue font-display font-black text-xs bg-black/40 px-2 py-1 rounded`}>#{place}</div>
+                        ) : null;
+                      })()
+                    )}
                   </div>
-                  <div className="justify-self-end text-right text-xs md:text-sm text-gray-400">
+
+                  <div className="rounded-full bg-black border-2 border-gray-600 overflow-hidden flex items-center justify-center shadow-lg w-16 h-16 md:w-20 md:h-20">
+                    {team.logo ? <img src={team.logo} className="w-full h-full object-cover" /> : <span className="text-white font-bold text-xl md:text-2xl">{team.name[0]}</span>}
+                  </div>
+                  <div className={`font-bold uppercase tracking-wider ${gameState === GameState.FINISHED ? 'text-xl md:text-2xl text-neon-yellow' : 'text-base md:text-lg text-white'} truncate w-full`}>
+                    {team.name}
+                  </div>
+                  <div className="text-xs md:text-sm text-gray-400">
                     {gameState !== GameState.FINISHED && positionsMap[String(config.teams.findIndex(t => t.id === team.id))] ? (
                       <span>Position #{positionsMap[String(config.teams.findIndex(t => t.id === team.id))]}</span>
                     ) : null}
                   </div>
                 </div>
-              ))}
+             ))}
           </div>
         </div>
       </main>

@@ -324,7 +324,7 @@ export default function ConfigurationPage() {
               </div>
             </div>
 
-            {/* Team List */}
+            {/* Team List (rows) */}
             <div className="flex-1 overflow-y-auto space-y-3 pr-2 max-h-[500px]">
               {config.teams.length === 0 && (
                 <div className="text-center text-gray-500 py-10 italic">No teams added yet.</div>
