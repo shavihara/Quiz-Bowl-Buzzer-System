@@ -31,6 +31,10 @@ export interface AppConfig {
   currentQuestionNumber: number;
   teams: Team[];
   isConfigured: boolean;
+  buzzerSoundEnabled: boolean;
+  buzzerToneFreq: number; // base frequency for synth tone
+  buzzerToneMs: number;   // tone duration in ms
+  buzzerAudioData: string | null; // optional custom audio data URL/base64
 }
 
 export const DEFAULT_CONFIG: AppConfig = {
@@ -43,4 +47,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   currentQuestionNumber: 1,
   teams: [],
   isConfigured: false,
+  buzzerSoundEnabled: false,
+  buzzerToneFreq: 800,
+  buzzerToneMs: 200,
+  buzzerAudioData: null,
 };

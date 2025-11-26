@@ -28,6 +28,7 @@ const char* pass = "11111111";
 // API handler function declarations
 void handleHealth();
 void handleStatus();
+void handleGameConfig();
 void handleGameStart();
 void handleGameReset();
 void handleOptions();
@@ -67,6 +68,10 @@ volatile unsigned long pressTimestamps[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 volatile int pressOrderNo[10] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 volatile int currentOrderNo = 0;
 const unsigned long BUZZER_STEP_INTERVAL = 150; // Faster pattern steps
+volatile unsigned long ledOffAt[10] = {0,0,0,0,0,0,0,0,0,0};
+volatile unsigned long beepEndTime = 0;
+const unsigned long PRESS_LED_MS = 700;
+const unsigned long PRESS_BEEP_MS = 200;
 
 // Generic interrupt handler for any switch
 void IRAM_ATTR handleSwitchInterrupt(int switchIndex)
@@ -158,6 +163,18 @@ void setup()
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
   WiFi.persistent(true);
+  WiFi.onEvent([](WiFiEvent_t event){
+    if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED){
+      int tries = 0;
+      while (WiFi.status() != WL_CONNECTED && tries < 10){
+        WiFi.reconnect();
+        delay(500);
+        tries++;
+      }
+    } else if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP){
+      MDNS.begin("esp32");
+    }
+  });
   WiFi.begin(ssid, pass);
   unsigned long t0 = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - t0 < 15000){ delay(200); }
@@ -169,6 +186,7 @@ void setup()
   server.on("/api/game/start", HTTP_POST, handleGameStart);
   server.on("/api/game/reset", HTTP_POST, handleGameReset);
   server.on("/events", HTTP_GET, handleEvents);
+  server.on("/events", HTTP_OPTIONS, handleOptions);
   server.on("/api/health", HTTP_OPTIONS, handleOptions);
   server.on("/api/status", HTTP_OPTIONS, handleOptions);
   server.on("/api/game/config", HTTP_OPTIONS, handleOptions);
@@ -196,36 +214,13 @@ void playThrillingBuzzer()
 void updateExcitingLEDs()
 {
   unsigned long currentTime = millis();
-  unsigned long elapsed = currentTime - buzzerStartTime;
-
   if (currentTime - lastLedBlinkTime >= LED_BLINK_INTERVAL)
   {
     lastLedBlinkTime = currentTime;
-
-    // Different LED patterns based on time
-    if (elapsed < 1500)
-    {
-      // Phase 1: Fast blinking
-      ledBlinkState = !ledBlinkState;
-    }
-    else if (elapsed < 3000)
-    {
-      // Phase 2: Very fast blinking
-      ledBlinkState = (millis() % 100) < 50;
-    }
-    else
-    {
-      // Phase 3: Breathing effect
-      int breath = (millis() % 1000) - 500;
-      ledBlinkState = (breath * breath) < 62500; // Quadratic breathing
-    }
-
-    // Turn off all LEDs first
+    ledBlinkState = !ledBlinkState;
     for (int i = 0; i < 10; i++) {
       digitalWrite(ledPins[i], LOW);
     }
-
-    // Apply blinking effect to the winner's LED only
     if (firstPress >= 0 && firstPress < 10) {
       digitalWrite(ledPins[firstPress], ledBlinkState ? HIGH : LOW);
     }
@@ -276,11 +271,12 @@ void handleGameConfig(){
 
 void handleGameStart(){
   // Start game using current gameDuration
-  for (int i=0;i<10;i++){ 
-    pressOrder[i] = -1; 
+  for (int i=0;i<10;i++){
+    pressOrder[i] = -1;
     recorded[i] = false;
     pressTimestamps[i] = 0;
     pressOrderNo[i] = -1;
+    ledOffAt[i] = 0;
   }
   pressCount = 0;
   currentOrderNo = 0;
@@ -288,21 +284,24 @@ void handleGameStart(){
   firstPress = -1;
   gameActive = true;
   gameStartTime = millis();
+  beepEndTime = 0;
   sendCors(); server.send(200,"application/json","{}");
 }
 
 void handleGameReset(){
   gameActive = false;
-  for (int i=0;i<10;i++){ 
-    pressOrder[i] = -1; 
-    recorded[i] = false; 
+  for (int i=0;i<10;i++){
+    pressOrder[i] = -1;
+    recorded[i] = false;
     pressTimestamps[i] = 0;
     pressOrderNo[i] = -1;
     digitalWrite(ledPins[i], LOW);
-  } 
+    ledOffAt[i] = 0;
+  }
   pressCount = 0;
   currentOrderNo = 0;
   ledcWrite(PWM_CHANNEL,0);
+  beepEndTime = 0;
   sendCors(); server.send(200,"application/json","{}");
 }
 
@@ -320,6 +319,8 @@ void loop()
           pressTimestamps[i] = millis(); // Server-side timestamp
           pressOrderNo[i] = currentOrderNo++; // Assign order number
           if (pressCount < 10) pressOrder[pressCount++] = i;
+          ledOffAt[i] = now + PRESS_LED_MS;
+          beepEndTime = now + PRESS_BEEP_MS;
           
           // Send SSE event with timestamp and order number
           DynamicJsonDocument eventData(256);
@@ -332,28 +333,21 @@ void loop()
           String eventStr;
           serializeJson(eventData, eventStr);
           sendSSEEvent("buzzer", eventStr.c_str());
-          
-          if (pressCount == 1) {
-            firstPressDetected = true;
-            firstPress = i;
-            buzzerStartTime = now;
-            buzzerPatternStep = 0;
-            lastBuzzerStepTime = now;
-            lastLedBlinkTime = now;
-            ledBlinkState = true;
-          }
         }
       }
     }
-    if (firstPressDetected) {
-      playThrillingBuzzer();
-      updateExcitingLEDs();
-      if (millis() - buzzerStartTime >= 5000) {
-        ledcWrite(PWM_CHANNEL, 0);
-        for (int i = 0; i < 10; i++) { digitalWrite(ledPins[i], LOW); }
-        firstPressDetected = false;
-        ledBlinkState = false;
+    for (int i = 0; i < 10; i++) {
+      if (ledOffAt[i] > now) {
+        digitalWrite(ledPins[i], HIGH);
+      } else {
+        digitalWrite(ledPins[i], LOW);
       }
+    }
+    if (beepEndTime > now) {
+      ledcWriteTone(PWM_CHANNEL, 2000);
+      ledcWrite(PWM_CHANNEL, 255);
+    } else {
+      ledcWrite(PWM_CHANNEL, 0);
     }
     if (now - gameStartTime >= gameDuration) {
       DynamicJsonDocument d(256);
@@ -365,86 +359,11 @@ void loop()
       gameActive = false;
     }
   }
-  // Check for first switch press among all 10 participants
-  if (!firstPressDetected) {
-    for (int i = 0; i < 10; i++) {
-      if (switchPressed[i]) {
-        // Verify the switch is actually pressed (debounce verification)
-        bool isActuallyPressed = (digitalRead(switchPins[i]) == LOW);
-        
-        if (isActuallyPressed) {
-          firstPressDetected = true;
-          ignoreInputs = true;
-          firstPress = i;
-          
-          // Announce the winner
-          Serial.printf("🎉 %s WINS! First to press! 🎉\n", participantNames[i]);
-          Serial.println("🔊 Playing exciting victory sequence!");
-
-          // Initialize patterns
-          buzzerStartTime = millis();
-          buzzerPatternStep = 0;
-          lastBuzzerStepTime = buzzerStartTime;
-          lastLedBlinkTime = buzzerStartTime;
-          ledBlinkState = true;
-
-          // Turn off all LEDs first, then turn on winner's LED
-          for (int j = 0; j < 10; j++) {
-            digitalWrite(ledPins[j], LOW);
-          }
-          digitalWrite(ledPins[i], HIGH);
-
-          // Reset all switch pressed flags
-          for (int j = 0; j < 10; j++) {
-            switchPressed[j] = false;
-          }
-          break; // Exit the loop once we found the first press
-        } else {
-          // False trigger - reset this switch
-          switchPressed[i] = false;
-        }
-      }
-    }
-  }
-
-  // Play exciting patterns during the 5-second celebration
-  if (firstPressDetected)
-  {
-    playThrillingBuzzer();
-    updateExcitingLEDs();
-
-    // Check if 5 seconds have passed
-    if (millis() - buzzerStartTime >= 5000)
-    {
-      // Grand finale - one last beep
-      ledcWriteTone(PWM_CHANNEL, 1000);
-      ledcWrite(PWM_CHANNEL, 255);
-      delay(200);
-
-      // Turn off everything - all 10 LEDs and buzzer
-      ledcWrite(PWM_CHANNEL, 0);
-      for (int i = 0; i < 10; i++) {
-        digitalWrite(ledPins[i], LOW);
-      }
-
-      // Reset state
-      firstPressDetected = false;
-      ignoreInputs = false;
-      firstPress = 0;
-      ledBlinkState = false;
-
-      Serial.println("-----------------------------------");
-      Serial.println("✅ System READY for next question!");
-      Serial.println("-----------------------------------");
-    }
-  }
-
   delay(10);
 }
 
-// Simple SSE single-client support
-WiFiClient sseClient;
-bool sseConnected = false;
+WiFiClient sseClients[4];
+bool sseActive[4] = {false,false,false,false};
 
 void handleEvents() {
   WiFiClient client = server.client();
@@ -456,17 +375,27 @@ void handleEvents() {
     "Access-Control-Allow-Origin: *\r\n\r\n"
   );
   client.print(": connected\n\n");
-  sseClient = client;
-  sseConnected = true;
+  client.setNoDelay(true);
+  for (int i=0;i<4;i++){
+    if (!sseActive[i] || !sseClients[i].connected()){
+      sseClients[i] = client;
+      sseActive[i] = true;
+      break;
+    }
+  }
 }
 
 void sendSSEEvent(const char* event, const char* data) {
-  if (sseConnected && sseClient.connected()) {
-    sseClient.print("event: ");
-    sseClient.print(event);
-    sseClient.print("\ndata: ");
-    sseClient.print(data);
-    sseClient.print("\n\n");
+  for (int i=0;i<4;i++){
+    if (sseActive[i] && sseClients[i].connected()){
+      sseClients[i].print("event: ");
+      sseClients[i].print(event);
+      sseClients[i].print("\ndata: ");
+      sseClients[i].print(data);
+      sseClients[i].print("\n\n");
+    } else {
+      sseActive[i] = false;
+    }
   }
   Serial.printf("SSE Event: %s - %s\n", event, data);
 }

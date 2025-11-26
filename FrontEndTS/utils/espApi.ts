@@ -1,4 +1,11 @@
-const BASE = 'http://esp32.local';
+let BASE: string = (typeof localStorage !== 'undefined' && localStorage.getItem('espBaseUrl')) || 'http://esp32.local';
+export function setEspBaseUrl(url: string) {
+  BASE = url;
+  try { localStorage.setItem('espBaseUrl', url); } catch {}
+}
+export function getEspBaseUrl() {
+  return BASE;
+}
 
 export async function postConfig(durationMs: number) {
   const res = await fetch(`${BASE}/api/game/config`, {
@@ -25,6 +32,12 @@ export async function getStatus() {
   return res.json();
 }
 
+export async function getHealth() {
+  const res = await fetch(`${BASE}/api/health`);
+  if (!res.ok) throw new Error('health failed');
+  return res.json();
+}
+
 export function connectEvents(onBuzzer: (p: { teamIndex: number; orderNo: number; timestamp: number }) => void,
                               onResult: (r: { top3: number[] }) => void) {
   const es = new EventSource(`${BASE}/events`);
@@ -36,8 +49,13 @@ export function connectEvents(onBuzzer: (p: { teamIndex: number; orderNo: number
   });
   es.onerror = () => {
     es.close();
+    // Simple fallback: poll status once to keep UI roughly in sync
+    getStatus().then((s) => {
+      if (Array.isArray(s.pressOrder) && s.pressOrder.length) {
+        onResult({ top3: s.pressOrder.slice(0, 3) });
+      }
+    }).catch(() => {});
     setTimeout(() => connectEvents(onBuzzer, onResult), 3000);
   };
   return es;
 }
-

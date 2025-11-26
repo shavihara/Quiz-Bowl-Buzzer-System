@@ -35,8 +35,24 @@ export const ConfigProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
     } catch (error) {
-      console.error("Failed to save config (likely image size too large)", error);
-      // In a real app, handle quota exceeded by implementing IndexDB or external storage
+      const trimmed = { ...config } as AppConfig;
+      trimmed.leftLogo = null;
+      trimmed.rightLogo = null;
+      trimmed.mainAnimationGif = null;
+      trimmed.teams = trimmed.teams.map((t) => {
+        const logo = t.logo || null;
+        const safeLogo = logo && logo.length > 150000 ? null : logo;
+        return { ...t, logo: safeLogo } as Team;
+      });
+      if ((trimmed as any).buzzerAudioData && (trimmed as any).buzzerAudioData.length > 250000) {
+        (trimmed as any).buzzerAudioData = null;
+      }
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
+        console.warn('Large images removed from config to fit storage quota');
+      } catch (e2) {
+        console.error('Failed to save even after trimming. Consider reducing image sizes.');
+      }
     }
   }, [config]);
 

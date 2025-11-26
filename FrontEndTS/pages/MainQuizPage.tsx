@@ -17,6 +17,49 @@ export default function MainQuizPage() {
   
   const [gameState, setGameState] = useState<GameState>(GameState.IDLE);
   const [timeLeft, setTimeLeft] = useState(config.questionTimeoutSeconds);
+  const [pressedOrder, setPressedOrder] = useState<number[]>([]);
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(config.buzzerSoundEnabled);
+  const audioCtxRef = useRef<any>(null);
+  const gainRef = useRef<any>(null);
+  const bufferRef = useRef<AudioBuffer | null>(null);
+  const initAudio = async () => {
+    if (!audioCtxRef.current) {
+      const AC: any = (window as any).AudioContext || (window as any).webkitAudioContext;
+      audioCtxRef.current = new AC();
+      gainRef.current = audioCtxRef.current.createGain();
+      gainRef.current.gain.value = 0.35;
+      gainRef.current.connect(audioCtxRef.current.destination);
+    }
+    try { if (audioCtxRef.current.state === 'suspended') { await audioCtxRef.current.resume(); } } catch {}
+    if (config.buzzerAudioData && !bufferRef.current) {
+      try {
+        const res = await fetch(config.buzzerAudioData);
+        const ab = await res.arrayBuffer();
+        bufferRef.current = await audioCtxRef.current.decodeAudioData(ab);
+      } catch {}
+    }
+  };
+  const playBeep = (freq: number, ms: number) => {
+    const ctx = audioCtxRef.current;
+    if (!ctx || !gainRef.current) return;
+    try { if (ctx.state === 'suspended') { ctx.resume(); } } catch {}
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    osc.connect(gainRef.current);
+    const now = ctx.currentTime;
+    osc.start(now);
+    osc.stop(now + ms / 1000);
+  };
+  const playBuffer = () => {
+    const ctx = audioCtxRef.current;
+    if (!ctx || !gainRef.current || !bufferRef.current) return;
+    try { if (ctx.state === 'suspended') { ctx.resume(); } } catch {}
+    const src = ctx.createBufferSource();
+    src.buffer = bufferRef.current;
+    src.connect(gainRef.current);
+    src.start(ctx.currentTime);
+  };
   
   // Audio Refs (Conceptual placeholder, actual implementation would require audio files)
   // const buzzerSound = useRef(new Audio('/buzzer.mp3'));
@@ -33,17 +76,54 @@ export default function MainQuizPage() {
     return () => clearInterval(timer);
   }, [gameState, timeLeft]);
 
+  useEffect(() => {
+    const es = connectEvents(
+      (data) => {
+        const idx = Number(data.teamIndex);
+        setPressedOrder((prev) => (prev.includes(idx) ? prev : [...prev, idx]));
+        if (soundEnabled) {
+          if (config.buzzerAudioData && bufferRef.current) {
+            playBuffer();
+          } else {
+            const base = Number(config.buzzerToneFreq) || 800;
+            const freq = base + idx * 90;
+            const ms = Number(config.buzzerToneMs) || 200;
+            playBeep(freq, ms);
+          }
+        }
+      },
+      (res) => {
+        setPressedOrder(res.top3 || []);
+        setGameState(GameState.FINISHED);
+      }
+    );
+    return () => { try { es.close(); } catch {} };
+  }, [soundEnabled, config.buzzerAudioData, config.buzzerToneFreq, config.buzzerToneMs]);
+
+  useEffect(() => {
+    const handler = () => { if (soundEnabled) { initAudio().catch(()=>{}); } };
+    window.addEventListener('click', handler, { once: true } as any);
+    window.addEventListener('keydown', handler, { once: true } as any);
+    return () => {
+      window.removeEventListener('click', handler);
+      window.removeEventListener('keydown', handler);
+    };
+  }, [soundEnabled]);
+
   // Reset timer if config changes or manual reset
   const handleReset = () => {
     setGameState(GameState.READY);
     setTimeLeft(config.questionTimeoutSeconds);
     updateConfig({ currentQuestionNumber: 1 });
     resetGame().catch(() => {});
+    setPressedOrder([]);
   };
 
   const handleStart = () => {
     startGame().catch(() => {});
     setGameState(GameState.RUNNING);
+    setPressedOrder([]);
+    if (soundEnabled) { initAudio().catch(()=>{}); }
   };
 
   const handleFinish = () => {
@@ -55,6 +135,7 @@ export default function MainQuizPage() {
     updateConfig({ currentQuestionNumber: current + 1 });
     setGameState(GameState.READY);
     setTimeLeft(config.questionTimeoutSeconds);
+    setPressedOrder([]);
   };
 
   // --------------------------------------------------------------------------------
@@ -99,21 +180,20 @@ export default function MainQuizPage() {
   // RENDER: Main Interface
   // --------------------------------------------------------------------------------
   const progressPercent = (timeLeft / config.questionTimeoutSeconds) * 100;
-  const [pressedOrder, setPressedOrder] = useState<number[]>([]);
-
-  useEffect(() => {
-    const es = connectEvents(
-      (data) => {
-        const idx = Number(data.teamIndex);
-        setPressedOrder((prev) => (prev.includes(idx) ? prev : [...prev, idx]));
-      },
-      (res) => {
-        setPressedOrder(res.top3 || []);
-        setGameState(GameState.FINISHED);
-      }
-    );
-    return () => { try { es.close(); } catch {} };
-  }, []);
+  const positionsMap = pressedOrder.reduce<Record<string, number>>((acc, idx, place) => {
+    acc[String(idx)] = place + 1;
+    return acc;
+  }, {});
+  const podiumTeams = (() => {
+    if (!pressedOrder.length) return [] as typeof config.teams;
+    const topIds = pressedOrder.slice(0, 3);
+    return topIds.map((i) => config.teams[i]).filter(Boolean);
+  })();
+  const ordinal = (n: number) => {
+    const s = ['th', 'st', 'nd', 'rd'];
+    const v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+  };
   
   // Simulating "Top 3" logic. 
   // In a real buzzer app, we'd sort by whoever buzzed first or has high score.
@@ -176,10 +256,10 @@ export default function MainQuizPage() {
       </header>
 
       {/* MAIN CONTENT AREA */}
-      <main className="flex-1 flex flex-col p-6 gap-6 relative z-10 overflow-hidden">
-        
-        {/* 2. LARGE TILE (GIF + Timer) */}
-        <div className="flex-[0.6] flex items-center justify-center relative bg-dark-surface/50 rounded-3xl border border-gray-800 backdrop-blur-sm overflow-hidden shadow-2xl">
+      <main className="flex-1 grid grid-cols-1 lg:grid-cols-2 p-6 gap-6 relative z-10 overflow-hidden">
+
+        {/* LEFT: COUNTDOWN TILE */}
+        <div className="flex items-center justify-center relative bg-dark-surface/50 rounded-3xl border border-gray-800 backdrop-blur-sm overflow-hidden shadow-2xl">
            
            {/* Center GIF */}
            {config.mainAnimationGif && (
@@ -217,52 +297,105 @@ export default function MainQuizPage() {
            </div>
         </div>
 
-        {/* 3. TEAM LIST / LEADERBOARD */}
-        <div className="flex-[0.4] relative">
+        {/* RIGHT: TEAM LIST + LIVE LEADERBOARD */}
+        <div className="relative">
+          {pressedOrder.length > 0 && gameState !== GameState.FINISHED && (
+            <div className="bg-neon-blue text-black px-6 py-2 rounded-xl font-black font-display text-base md:text-lg lg:text-xl mb-3 shadow-[0_0_20px_#00f3ff]">
+              LIVE LEADERBOARD
+            </div>
+          )}
           
-          {gameState === GameState.FINISHED && (
-             <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-neon-yellow text-black px-8 py-2 rounded-t-xl font-black font-display text-xl z-20 shadow-[0_0_20px_#ffe600]">
-               WINNERS CIRCLE
-             </div>
+          {gameState === GameState.FINISHED && pressedOrder.length > 0 && (
+            <div className="mb-4">
+              <div className="bg-neon-yellow text-black px-6 py-2 rounded-xl font-black font-display text-lg text-center shadow-[0_0_20px_#ffe600]">WINNERS CIRCLE</div>
+              <div className="mt-4 grid grid-cols-3 gap-3 items-end">
+                <div className="bg-gray-800/60 border border-gray-700 rounded-2xl p-3 text-center animate-pulse-slow">
+                  {podiumTeams[1] && (
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="text-3xl">🥈</div>
+                      <div className="w-16 h-16 rounded-full bg-black border border-gray-600 overflow-hidden">
+                        {podiumTeams[1].logo ? <img src={podiumTeams[1].logo} className="w-full h-full object-cover" /> : <span className="text-white font-bold text-xl">{podiumTeams[1].name?.[0] || '?'}</span>}
+                      </div>
+                      <div className="text-neon-blue font-bold uppercase tracking-wider text-sm truncate w-full">{podiumTeams[1].name}</div>
+                      <div className="text-gray-400 text-xs">{ordinal(2)}</div>
+                    </div>
+                  )}
+                </div>
+                <div className="bg-black/70 border border-neon-yellow rounded-2xl p-4 text-center shadow-[0_0_25px_#ffe600aa] scale-105 animate-bounce">
+                  {podiumTeams[0] && (
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="text-4xl">🥇</div>
+                      <div className="w-20 h-20 rounded-full bg-black border border-neon-yellow overflow-hidden">
+                        {podiumTeams[0].logo ? <img src={podiumTeams[0].logo} className="w-full h-full object-cover" /> : <span className="text-neon-yellow font-black text-2xl">{podiumTeams[0].name?.[0] || '?'}</span>}
+                      </div>
+                      <div className="text-neon-yellow font-black uppercase tracking-wider text-base truncate w-full">{podiumTeams[0].name}</div>
+                      <div className="text-gray-300 text-xs">{ordinal(1)}</div>
+                    </div>
+                  )}
+                </div>
+                <div className="bg-gray-800/60 border border-gray-700 rounded-2xl p-3 text-center animate-pulse-slow">
+                  {podiumTeams[2] && (
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="text-3xl">🥉</div>
+                      <div className="w-16 h-16 rounded-full bg-black border border-gray-600 overflow-hidden">
+                        {podiumTeams[2].logo ? <img src={podiumTeams[2].logo} className="w-full h-full object-cover" /> : <span className="text-white font-bold text-xl">{podiumTeams[2].name?.[0] || '?'}</span>}
+                      </div>
+                      <div className="text-neon-blue font-bold uppercase tracking-wider text-sm truncate w-full">{podiumTeams[2].name}</div>
+                      <div className="text-gray-400 text-xs">{ordinal(3)}</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
           )}
 
-          <div className={`grid gap-4 w-full h-full p-4 overflow-y-auto ${gameState === GameState.FINISHED ? 'grid-cols-3 items-center' : 'grid-cols-2 md:grid-cols-5 content-start'}`}>
-             {displayTeams.map((team, index) => (
-               <div 
-                key={team.id} 
+          <div className={`grid gap-4 w-full h-full p-4 overflow-y-auto grid-cols-1`}>
+              {displayTeams.map((team, index) => (
+                <div 
+                 key={team.id} 
                 className={`
-                  relative bg-dark-card border rounded-xl overflow-hidden flex flex-col items-center justify-center p-4 transition-all duration-500
+                  relative bg-dark-card border rounded-xl overflow-hidden grid grid-cols-[auto_auto_1fr] items-center gap-4 p-4 transition-all duration-500
                   ${gameState === GameState.FINISHED 
-                    ? 'h-[80%] border-neon-yellow shadow-[0_0_30px_#ffe60033] scale-105 first:scale-110 first:border-4 first:shadow-[0_0_50px_#ffe60066] z-10' 
+                    ? 'border-neon-yellow shadow-[0_0_30px_#ffe60033]' 
                     : 'border-gray-700 hover:border-neon-blue'
                   }
                 `}
-               >
-                  {gameState === GameState.FINISHED && (
-                    <div className="absolute top-2 left-2 text-6xl font-black text-gray-800/50 font-display">#{index + 1}</div>
+                >
+                  {gameState === GameState.FINISHED && pressedOrder.length > 0 ? (
+                    <div className={`text-neon-yellow font-display font-black text-sm md:text-base bg-black/40 px-2 py-1 rounded`}>#{index + 1}</div>
+                  ) : (
+                    (() => {
+                      const teamIndex = config.teams.findIndex(t => t.id === team.id);
+                      const place = positionsMap[String(teamIndex)];
+                      return place ? (
+                        <div className={`text-neon-blue font-display font-black text-sm md:text-base bg-black/40 px-2 py-1 rounded`}>#{place}</div>
+                      ) : (
+                        <div className="w-6" />
+                      );
+                    })()
                   )}
-                  
-                  <div className={`
-                    rounded-full bg-black border-2 border-gray-600 overflow-hidden flex items-center justify-center shadow-lg mb-3
-                    ${gameState === GameState.FINISHED ? 'w-32 h-32' : 'w-20 h-20'}
-                  `}>
-                    {team.logo ? <img src={team.logo} className="w-full h-full object-cover" /> : <span className="text-white font-bold text-2xl">{team.name[0]}</span>}
+
+                  <div className="flex items-center gap-4 md:gap-6">
+                    <div className="rounded-full bg-black border-2 border-gray-600 overflow-hidden flex items-center justify-center shadow-lg w-14 h-14 md:w-16 md:h-16 lg:w-20 lg:h-20">
+                      {team.logo ? <img src={team.logo} className="w-full h-full object-cover" /> : <span className="text-white font-bold text-xl md:text-2xl">{team.name[0]}</span>}
+                    </div>
+                    <div className={`font-bold uppercase tracking-wider ${gameState === GameState.FINISHED ? 'text-2xl md:text-3xl text-neon-yellow' : 'text-base md:text-lg text-white'} truncate max-w-[50vw] md:max-w-[30vw]`}>
+                      {team.name}
+                    </div>
                   </div>
-                  
-                  <div className={`
-                    font-bold text-center uppercase tracking-wider
-                    ${gameState === GameState.FINISHED ? 'text-3xl text-neon-yellow' : 'text-lg text-white'}
-                  `}>
-                    {team.name}
+                  <div className="justify-self-end text-right text-xs md:text-sm text-gray-400">
+                    {gameState !== GameState.FINISHED && positionsMap[String(config.teams.findIndex(t => t.id === team.id))] ? (
+                      <span>Position #{positionsMap[String(config.teams.findIndex(t => t.id === team.id))]}</span>
+                    ) : null}
                   </div>
-               </div>
-             ))}
+                </div>
+              ))}
           </div>
         </div>
       </main>
 
-      {/* 4. CONTROLS (Sticky Bottom) */}
-      <div className="h-20 bg-dark-surface border-t border-gray-800 flex items-center justify-center gap-6 z-30">
+      {/* 4. CONTROLS (Bottom Right) */}
+      <div className="fixed bottom-6 right-6 flex items-center gap-3 bg-dark-surface/80 border border-gray-800 rounded-md px-3 py-2 z-30">
         
         {/* Buttons vary based on state */}
         <ControlBtn 
@@ -277,9 +410,9 @@ export default function MainQuizPage() {
             icon={<Play fill="currentColor" />} 
             label="Start Quiz" 
             onClick={handleStart} 
-            color="bg-neon-blue text-black hover:bg-cyan-400 hover:shadow-[0_0_20px_#00f3ff]"
-            main
-          />
+          color="bg-neon-blue text-black"
+          main
+        />
         )}
 
         {gameState === GameState.RUNNING && (
@@ -287,21 +420,19 @@ export default function MainQuizPage() {
             icon={<Square fill="currentColor" />} 
             label="Finish Early" 
             onClick={handleFinish} 
-            color="bg-red-600 hover:bg-red-500 hover:shadow-[0_0_20px_red]"
-            main
-          />
+          color="bg-red-600"
+          main
+        />
         )}
 
         <ControlBtn 
           icon={<SkipForward />} 
           label="Next Round" 
           onClick={handleNextRound} 
-          color="bg-purple-700 hover:bg-purple-600"
+          color="bg-purple-700"
         />
-
-        {/* Secret Config Link for Access */}
-        <button onClick={() => navigate('/config')} className="absolute right-6 p-3 text-gray-600 hover:text-white transition-colors">
-          <Settings size={20} />
+        <button onClick={() => navigate('/config')} className="p-2 text-gray-400 hover:text-white transition-colors">
+          <Settings size={18} />
         </button>
       </div>
     </div>
@@ -312,8 +443,8 @@ const ControlBtn = ({ icon, label, onClick, color, main }: any) => (
   <button 
     onClick={onClick}
     className={`
-      flex items-center gap-2 px-6 py-3 rounded-lg font-bold uppercase tracking-wider transition-all transform active:scale-95
-      ${color} ${main ? 'text-lg px-10' : 'text-sm text-white'}
+      flex items-center gap-2 px-4 py-2 rounded-md font-semibold uppercase tracking-wider transition-all
+      ${color} ${main ? 'text-base px-6' : 'text-xs text-white'}
     `}
   >
     {icon} {label}
