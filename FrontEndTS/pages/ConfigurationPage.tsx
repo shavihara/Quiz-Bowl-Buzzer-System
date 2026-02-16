@@ -216,8 +216,7 @@ export default function ConfigurationPage() {
                   alert('ESP32 not reachable. Check the URL and network, then try Test.');
                   return;
                 }
-                const minutes = Math.round(config.questionTimeoutSeconds / 60);
-                const durationMs = Math.max(0, minutes) * 60 * 1000;
+                const durationMs = Math.max(0, Number(config.questionTimeoutSeconds)) * 1000;
                 try { await postConfig(durationMs); } catch {
                   alert('Failed to send configuration to ESP32.');
                   return;
@@ -291,13 +290,13 @@ export default function ConfigurationPage() {
               <NeonInput
                 label="Question Timeout (Minutes)"
                 type="number"
-                value={Math.round(config.questionTimeoutSeconds / 60)}
-                placeholder="Enter minutes..."
+                value={Number((config.questionTimeoutSeconds / 60).toFixed(2))}
+                placeholder="e.g., 0.5 for 30 seconds"
                 min={0}
-                step={1}
+                step={0.1}
                 onChange={(e) => {
-                  const minutes = Number(e.target.value) || 0;
-                  const seconds = Math.max(0, Math.round(minutes) * 60);
+                  const minutes = Number(e.target.value);
+                  const seconds = Number.isFinite(minutes) ? Math.max(0, Math.round(minutes * 60)) : 0;
                   updateConfig({ questionTimeoutSeconds: seconds });
                 }}
               />

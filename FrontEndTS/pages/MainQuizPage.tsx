@@ -195,7 +195,7 @@ export default function MainQuizPage() {
       if (e.key === 'Enter') {
         let points = 0;
         if (focusedRank === 0) points = 10;
-        else if (focusedRank === 1) points = 8;
+        else if (focusedRank === 1) points = 7;
         else if (focusedRank === 2) points = 5;
 
         if (points > 0) {
@@ -340,7 +340,7 @@ export default function MainQuizPage() {
       `}</style>
 
       {/* 1. CUSTOM HEADER */}
-      <header className="h-[120px] flex items-center px-4 md:px-8 relative z-20 bg-gradient-to-b from-gray-900 via-gray-900/95 to-black border-b-4 border-[#FFB300] shadow-[0_0_30px_rgba(255,179,0,0.4)] backdrop-blur-md">
+      <header className="h-[120px] bg-transparent flex items-center px-4 md:px-8 relative z-20">
         <div className="flex items-center justify-center">
           {config.leftLogo ? (
             <img src={config.leftLogo} className="object-contain mix-blend-multiply" style={{ maxHeight: '100px', maxWidth: '120px' }} alt="Left" />
@@ -351,7 +351,7 @@ export default function MainQuizPage() {
           <h1 className="text-3xl md:text-5xl font-display font-black text-white uppercase tracking-wider">
             {config.headerTitle}
           </h1>
-          <p className="text-[#FFB300] font-bold tracking-[0.3em] uppercase mt-2 text-sm md:text-lg animate-pulse drop-shadow-[0_0_5px_rgba(255,179,0,0.8)]">
+          <p className="text-neon-blue font-bold tracking-[0.3em] uppercase mt-2 text-sm md:text-lg animate-pulse">
             {config.headerSubtitle}
           </p>
         </div>
@@ -368,21 +368,21 @@ export default function MainQuizPage() {
         
         {/* VIEW: GAME RUNNING OR READY (Split Screen) */}
         {gameState !== GameState.FINISHED && (
-          <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 p-6 gap-6">
+          <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 p-2 gap-4 h-full">
              {/* LEFT: COUNTDOWN TILE */}
-            <div className="flex items-center justify-center relative bg-dark-surface/50 rounded-3xl border border-gray-800 backdrop-blur-sm overflow-hidden shadow-2xl">
+            <div className="flex items-center justify-center relative bg-dark-surface/50 rounded-3xl border border-gray-800 backdrop-blur-sm overflow-hidden shadow-2xl h-full">
                {config.mainAnimationGif && (
                  <div className="absolute inset-0 flex items-center justify-center">
-                   <img src={config.mainAnimationGif} className="w-full h-full object-cover opacity-40 pointer-events-none" loading="eager" alt="Background" />
+                   <img src={config.mainAnimationGif} className="w-full h-full object-contain opacity-60 pointer-events-none scale-125" loading="eager" alt="Background" />
                  </div>
                )}
                <div className="relative z-10 text-center w-full max-w-4xl px-12">
                 {gameState === GameState.RUNNING ? (
                   <div className="flex flex-col items-center w-full">
-                    <div className="text-[8rem] md:text-[10rem] font-display font-black leading-none text-white drop-shadow-[0_0_30px_#ff00ff]">
+                    <div className="text-[8rem] md:text-[12rem] font-display font-black leading-none text-white drop-shadow-[0_0_30px_#ff00ff]">
                       {Math.floor(timeLeft / 60)}:{String(timeLeft % 60).padStart(2, '0')}
                     </div>
-                    <div className="w-full h-6 bg-gray-800 rounded-full mt-8 overflow-hidden border border-gray-700">
+                    <div className="w-full h-8 bg-gray-800 rounded-full mt-8 overflow-hidden border border-gray-700">
                        <div 
                          className={`h-full transition-all duration-1000 ease-linear ${timeLeft < 10 ? 'bg-red-500 shadow-[0_0_20px_red]' : 'bg-neon-blue shadow-[0_0_20px_#00f3ff]'}`}
                          style={{ width: `${progressPercent}%` }}
@@ -391,8 +391,8 @@ export default function MainQuizPage() {
                   </div>
                 ) : (
                    <div className="animate-glow">
-                      <div className="text-5xl md:text-6xl font-display font-black text-white tracking-widest">
-                        QUESTION {Number(config.currentQuestionNumber) || 1}
+                      <div className="text-6xl md:text-8xl font-display font-black text-white tracking-widest uppercase">
+                        Question {Number(config.currentQuestionNumber) || 1}
                       </div>
                    </div>
                  )}
@@ -400,31 +400,33 @@ export default function MainQuizPage() {
             </div>
 
             {/* RIGHT: REGULAR TEAM GRID */}
-            <div className="relative overflow-y-auto">
-              {pressedOrder.length > 0 && (
-                <div className="bg-neon-blue text-black px-6 py-2 rounded-xl font-black font-display text-base md:text-lg lg:text-xl mb-3 shadow-[0_0_20px_#00f3ff]">
-                  LIVE LEADERBOARD
-                </div>
-              )}
-              <div className="grid gap-3 grid-cols-[repeat(auto-fit,minmax(220px,1fr))]">
-                 {/* Show pressed teams first, then rest */}
-                 {(() => {
-                   const ordered = pressedOrder.map(i => config.teams[i]).filter(Boolean);
-                   const rest = config.teams.filter(t => !ordered.includes(t));
-                   return [...ordered, ...rest].map((team, idx) => (
-                      <div key={team.id} className="relative bg-dark-card border border-gray-700 rounded-2xl overflow-hidden p-3 flex flex-col items-center justify-center gap-2 text-center hover:border-neon-blue transition-colors max-w-[260px] w-full mx-auto h-[200px] md:h-[220px]">
-                        {ordered.includes(team) && (
-                          <div className="absolute top-3 left-3 text-neon-blue font-display font-black text-xs bg-black/40 px-2 py-1 rounded">
-                            #{ordered.indexOf(team) + 1}
+            <div className="flex flex-col relative bg-dark-surface/50 rounded-3xl border border-gray-800 backdrop-blur-sm overflow-hidden shadow-2xl h-full p-4">
+              <div className="flex-1 overflow-y-auto w-full custom-scrollbar">
+                {pressedOrder.length > 0 && (
+                  <div className="bg-neon-blue text-black px-6 py-3 rounded-xl font-black font-display text-xl md:text-2xl mb-4 shadow-[0_0_20px_#00f3ff] text-center sticky top-0 z-10">
+                    LIVE LEADERBOARD
+                  </div>
+                )}
+                <div className="grid gap-4 grid-cols-[repeat(auto-fit,minmax(240px,1fr))] auto-rows-fr">
+                   {/* Show pressed teams first, then rest */}
+                   {(() => {
+                     const ordered = pressedOrder.map(i => config.teams[i]).filter(Boolean);
+                     const rest = config.teams.filter(t => !ordered.includes(t));
+                     return [...ordered, ...rest].map((team, idx) => (
+                        <div key={team.id} className="relative bg-dark-card border border-gray-700 rounded-2xl overflow-hidden p-4 flex flex-col items-center justify-center gap-3 text-center hover:border-neon-blue transition-colors w-full h-full min-h-[220px]">
+                          {ordered.includes(team) && (
+                            <div className="absolute top-3 left-3 text-neon-blue font-display font-black text-sm bg-black/40 px-3 py-1 rounded">
+                              #{ordered.indexOf(team) + 1}
+                            </div>
+                          )}
+                          <div className="rounded-full bg-black border-2 border-gray-600 overflow-hidden w-20 h-20 md:w-24 md:h-24 flex items-center justify-center shadow-lg">
+                            {team.logo ? <img src={team.logo} className="w-full h-full object-cover" /> : <span className="text-white font-bold text-2xl">{team.name[0]}</span>}
                           </div>
-                        )}
-                        <div className="rounded-full bg-black border-2 border-gray-600 overflow-hidden w-14 h-14 md:w-16 md:h-16 flex items-center justify-center">
-                          {team.logo ? <img src={team.logo} className="w-full h-full object-cover" /> : <span className="text-white font-bold">{team.name[0]}</span>}
+                          <div className="font-bold uppercase tracking-wider text-lg md:text-xl text-white truncate w-full">{team.name}</div>
                         </div>
-                        <div className="font-bold uppercase tracking-wider text-sm md:text-base text-white truncate w-full">{team.name}</div>
-                      </div>
-                   ));
-                 })()}
+                     ));
+                   })()}
+                </div>
               </div>
             </div>
           </div>

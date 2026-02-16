@@ -42,17 +42,27 @@ export function connectEvents(onBuzzer: (p: { teamIndex: number; orderNo: number
                               onResult: (r: { top3: number[] }) => void) {
   const es = new EventSource(`${BASE}/events`);
   es.addEventListener('buzzer', (e: MessageEvent) => {
-    try { const data = JSON.parse(e.data); onBuzzer(data); } catch {}
+    try { 
+      const data = JSON.parse(e.data);
+      const espIdx = Number(data.teamIndex);
+      const mappedIdx = espIdx === 8 ? 3 : espIdx; // Map ESP switch 8 -> Frontend team 4 (index 3)
+      onBuzzer({ ...data, teamIndex: mappedIdx });
+    } catch {}
   });
   es.addEventListener('result', (e: MessageEvent) => {
-    try { const data = JSON.parse(e.data); onResult(data); } catch {}
+    try { 
+      const data = JSON.parse(e.data);
+      const mapped = Array.isArray(data.top3) ? data.top3.map((i: number) => (i === 8 ? 3 : i)) : [];
+      onResult({ top3: mapped }); 
+    } catch {}
   });
   es.onerror = () => {
     es.close();
     // Simple fallback: poll status once to keep UI roughly in sync
     getStatus().then((s) => {
       if (Array.isArray(s.pressOrder) && s.pressOrder.length) {
-        onResult({ top3: s.pressOrder.slice(0, 3) });
+        const mapped = s.pressOrder.slice(0, 3).map((i: number) => (i === 8 ? 3 : i));
+        onResult({ top3: mapped });
       }
     }).catch(() => {});
     setTimeout(() => connectEvents(onBuzzer, onResult), 3000);
