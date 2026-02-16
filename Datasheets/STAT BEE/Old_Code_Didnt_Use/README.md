@@ -1,1 +1,0 @@
-# Quiz-Bowl-Buzzer-System
